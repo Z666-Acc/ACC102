@@ -1,5 +1,4 @@
 import streamlit as st
-import yfinance as yf
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -15,40 +14,60 @@ st.set_page_config(
 )
 
 st.title("📈 Stock Health Diagnostic Tool")
-st.markdown("*Compare, analyse, and simulate stock portfolios. Data source: Yahoo Finance*")
+st.markdown("*Compare, analyse, and simulate stock portfolios. Data source: Yahoo Finance (April 2026)*")
+
+# ── Load CSV Data ─────────────────────────────────────────────────
+@st.cache_data
+def load_data():
+    close = pd.read_csv("close_prices.csv", index_col=0, parse_dates=True)
+    volume = pd.read_csv("volume_data.csv", index_col=0, parse_dates=True)
+    close = close.dropna(how='all')
+    volume = volume.dropna(how='all')
+    return close, volume
+
+try:
+    close_df, volume_df = load_data()
+    ALL_TICKERS = [c for c in close_df.columns if not c.startswith('^')]
+    BENCHMARK_OPTIONS = {
+        "^GSPC (S&P 500)": "^GSPC",
+        "^IXIC (NASDAQ)": "^IXIC",
+        "^DJI (Dow Jones)": "^DJI"
+    }
+except Exception as e:
+    st.error(f"Error loading data: {e}")
+    st.stop()
 
 # ── Sidebar ──────────────────────────────────────────────────────
 st.sidebar.header("⚙️ Settings")
-user_input = st.sidebar.text_input("Enter tickers (comma separated)", "AAPL,MSFT,NVDA,TSLA")
-TICKERS = [t.strip().upper() for t in user_input.split(",") if t.strip()]
-start_date = st.sidebar.date_input("Start Date", pd.to_datetime("2022-01-01"))
-end_date = st.sidebar.date_input("End Date", pd.to_datetime("2026-04-20"))
+
+selected_tickers = st.sidebar.multiselect(
+    "Select stocks to analyse",
+    options=ALL_TICKERS,
+    default=ALL_TICKERS[:4]
+)
+
+benchmark_label = st.sidebar.selectbox(
+    "Benchmark Index",
+    options=list(BENCHMARK_OPTIONS.keys())
+)
+benchmark_ticker = BENCHMARK_OPTIONS[benchmark_label]
+
 risk_free = st.sidebar.slider("Risk-Free Rate (%)", 0.0, 10.0, 5.0) / 100
-benchmark = st.sidebar.selectbox("Benchmark Index", ["^GSPC (S&P 500)", "^IXIC (NASDAQ)", "^DJI (Dow Jones)"])
-benchmark_ticker = benchmark.split(" ")[0]
-forecast_ticker = st.sidebar.selectbox("Forecast Stock", TICKERS)
+
+forecast_ticker = st.sidebar.selectbox(
+    "Forecast Stock",
+    options=selected_tickers if selected_tickers else ALL_TICKERS
+)
+
 st.sidebar.markdown("---")
-st.sidebar.caption("ACC102 Mini Assignment | Data: Yahoo Finance")
+st.sidebar.caption("ACC102 Mini Assignment | Data: Yahoo Finance, April 2026")
 
-# ── Load Data ────────────────────────────────────────────────────
-@st.cache_data
-def load_data(tickers, benchmark, start, end):
-    all_tickers = tickers + [benchmark]
-    raw = yf.download(all_tickers, start=start, end=end)
-    close = raw["Close"].dropna()
-    volume = raw["Volume"].dropna()
-    if hasattr(close.columns, 'levels'):
-        close.columns = close.columns.get_level_values(0)
-        volume.columns = volume.columns.get_level_values(0)
-    return close, volume
+if not selected_tickers:
+    st.warning("Please select at least one stock from the sidebar.")
+    st.stop()
 
-with st.spinner("Loading data from Yahoo Finance..."):
-    try:
-        close_df, volume_df = load_data(TICKERS, benchmark_ticker, str(start_date), str(end_date))
-        st.success(f"✅ Loaded {len(close_df)} trading days | {close_df.index[0].date()} to {close_df.index[-1].date()}")
-    except Exception as e:
-        st.error(f"Error loading data: {e}")
-        st.stop()
+TICKERS = selected_tickers
+st.success(f"✅ Loaded {len(close_df)} trading days | {close_df.index[0].date()} to {close_df.index[-1].date()}")
 
 # ── Compute Stats ─────────────────────────────────────────────────
 def compute_stats(ticker):
@@ -156,7 +175,7 @@ with tab2:
     st.pyplot(fig)
 
     if bench_available:
-        st.markdown("#### 📐 Alpha vs Benchmark")
+        st.markdown("#### Alpha vs Benchmark")
         bench_ret = (close_df[benchmark_ticker].iloc[-1] / close_df[benchmark_ticker].iloc[0]) - 1
         bench_ann = (1 + bench_ret) ** (252 / len(close_df)) - 1
         alpha_data = []
@@ -174,7 +193,7 @@ with tab2:
         st.caption(f"Alpha = Stock annualized return minus {benchmark_ticker} annualized return.")
 
     st.markdown("---")
-    st.subheader("📦 Price & Volume Relationship")
+    st.subheader("Price & Volume Relationship")
     vol_select = st.selectbox("Select ticker", available, key="vol_sel")
     fig2, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 6), sharex=True)
     ax1.plot(close_df[vol_select].index, close_df[vol_select], color='steelblue', linewidth=1.2)
@@ -187,7 +206,7 @@ with tab2:
     ax2.set_xlabel("Date")
     plt.tight_layout()
     st.pyplot(fig2)
-    st.caption("Volume spikes often coincide with major price movements — a key signal for traders.")
+    st.caption("Volume spikes often coincide with major price movements.")
 
 # ════════════════════════════════════════════════════════════════
 # TAB 3: Risk Analysis
@@ -198,7 +217,7 @@ with tab3:
     risk_sel = st.selectbox("Select ticker", available, key="risk_sel")
     ann_ret, ann_vol, max_dd, sharpe, prices, daily_ret = compute_stats(risk_sel)
 
-    st.markdown("#### 📉 Rolling 30-Day Volatility")
+    st.markdown("#### Rolling 30-Day Volatility")
     rolling_vol = daily_ret.rolling(30).std() * np.sqrt(252)
     fig3, ax = plt.subplots(figsize=(12, 3))
     ax.plot(rolling_vol.index, rolling_vol, color='darkorange', linewidth=1.2)
@@ -209,7 +228,7 @@ with tab3:
     st.pyplot(fig3)
     st.caption("Spikes indicate periods of market stress or major news events.")
 
-    st.markdown("#### 📉 Maximum Drawdown Curve")
+    st.markdown("#### Maximum Drawdown Curve")
     drawdown_curve = (prices - prices.cummax()) / prices.cummax()
     fig4, ax = plt.subplots(figsize=(12, 3))
     ax.fill_between(drawdown_curve.index, drawdown_curve, 0, color='red', alpha=0.4)
@@ -220,7 +239,7 @@ with tab3:
     plt.tight_layout()
     st.pyplot(fig4)
 
-    st.markdown("#### 📊 Daily Return Distribution")
+    st.markdown("#### Daily Return Distribution")
     fig5, ax = plt.subplots(figsize=(8, 4))
     ax.hist(daily_ret, bins=60, color='steelblue', edgecolor='white', alpha=0.8)
     ax.axvline(daily_ret.mean(), color='red', linestyle='--', label=f'Mean: {daily_ret.mean():.4f}')
@@ -233,9 +252,9 @@ with tab3:
     st.pyplot(fig5)
 
     col1, col2 = st.columns(2)
-    col1.metric("Skewness", f"{daily_ret.skew():.3f}", help="Negative = more extreme losses than gains")
-    col2.metric("Kurtosis", f"{daily_ret.kurtosis():.3f}", help="High = fat tails = more extreme events")
-    st.caption("Normal distribution has skewness ≈ 0, kurtosis ≈ 0. Fat tails indicate higher crash risk.")
+    col1.metric("Skewness", f"{daily_ret.skew():.3f}")
+    col2.metric("Kurtosis", f"{daily_ret.kurtosis():.3f}")
+    st.caption("Normal distribution has skewness = 0, kurtosis = 0. Fat tails indicate higher crash risk.")
 
 # ════════════════════════════════════════════════════════════════
 # TAB 4: Correlation
@@ -267,7 +286,7 @@ with tab4:
 # TAB 5: Portfolio Simulator
 # ════════════════════════════════════════════════════════════════
 with tab5:
-    st.subheader("💼 Portfolio Simulator")
+    st.subheader("Portfolio Simulator")
     st.markdown("Allocate weights to each stock and see your portfolio's combined performance vs the benchmark.")
 
     available = [t for t in TICKERS if t in close_df.columns]
@@ -284,7 +303,7 @@ with tab5:
     st.markdown(f"**Total allocated: {total_weight}%**")
 
     if total_weight != 100:
-        st.warning(f"⚠️ Weights sum to {total_weight}%. Please adjust sliders to exactly 100%.")
+        st.warning(f"Weights sum to {total_weight}%. Please adjust sliders to exactly 100%.")
     else:
         weights_norm = [w / 100 for w in weights]
         returns_df = close_df[available].pct_change().dropna()
@@ -340,13 +359,13 @@ with tab5:
                 st.metric("Portfolio Return", f"{ann_ret:.2%}")
                 st.metric("Benchmark Return", f"{bench_ann:.2%}")
                 st.metric("Alpha", f"{alpha:.2%}",
-                          delta=f"{'Outperforming ✅' if alpha > 0 else 'Underperforming ❌'}")
+                          delta=f"{'Outperforming' if alpha > 0 else 'Underperforming'}")
 
 # ════════════════════════════════════════════════════════════════
 # TAB 6: Forecast
 # ════════════════════════════════════════════════════════════════
 with tab6:
-    st.subheader(f"🔮 Linear Regression Forecast: {forecast_ticker}")
+    st.subheader(f"Linear Regression Forecast: {forecast_ticker} (Next 30 Trading Days)")
     if forecast_ticker not in close_df.columns:
         st.error(f"{forecast_ticker} not available in loaded data.")
     else:
@@ -379,4 +398,4 @@ with tab6:
         col2.metric("Predicted (30d)", f"${future_pred[-1]:.2f}")
         col3.metric("Expected Change", f"{change:.2%}", delta=f"{change:.2%}")
 
-        st.warning("⚠️ Linear regression captures long-term trend only. It does not account for earnings, macro events, or market sentiment. For educational purposes only.")
+        st.warning("Linear regression captures long-term trend only. It does not account for earnings, macro events, or market sentiment. For educational purposes only.")
