@@ -6,6 +6,7 @@ An interactive stock analysis application built with Python and Streamlit. It al
 
 **Target User:** Individual retail investors with no professional finance background who want a data-informed view of stock performance.
 
+🔗APP: https://acc102-stock-health-tool.streamlit.app
 
 ## Features
 
